@@ -1,4 +1,4 @@
-<jogo_seu.txt>
+<index.html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -970,3 +970,4 @@
 </body>
 
 </html>
+
