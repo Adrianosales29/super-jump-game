@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Jump Game 🍄</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Press Start 2P', 'Courier New', monospace;
+            background: linear-gradient(to bottom, #5c94fc 0%, #5c94fc 70%, #8B4513 70%, #654321 100%);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #gameContainer {
+            text-align: center;
+        }
+        
+        #gameCanvas {
+            border: 4px solid #000;
+            background: #5c94fc;
+            display: block;
+            margin: 0 auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        
+        .game-info {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            background: #000;
+            color: #fff;
+            font-size: 14px;
+            margin-bottom: 10px;
+            border-radius: 10px;
+        }
+        
+        .controls {
+            margin-top: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 12px;
+        }
+        
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            color: #fff;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            display: none;
+            z-index: 100;
+        }
+        
+        .game-over h2 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #ff0000;
+        }
+        
+        .game-over button {
+            background: #00ff00;
+            border: 4px solid #000;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-family: inherit;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.1s;
+        }
+        
+        .game-over button:hover {
+            transform: scale(1.1);
+        }
+        
+        .cloud {
+            position: absolute;
+            background: #fff;
+            border-radius: 50%;
+            opacity: 0.8;
+            animation: float 20s infinite linear;
+        }
+        
+        @keyframes float {
+            from { left: -100px; }
+            to { left: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="cloud" style="width: 60px; height: 30px; top: 10%; animation-duration: 25s;"></div>
+    <div class="cloud" style="width: 80px; height: 40px; top: 20%; animation-duration: 30s; animation-delay: 5s;"></div>
+    <div class="cloud" style="width: 50px; height: 25px; top: 15%; animation-duration: 35s; animation-delay: 10s;"></div>
+    
+    <div id="gameContainer">
+        <div class="game-info">
+            <div>BLORDON 🏃‍♂️</div>
+            <div>PONTOS: <span id="score">0</span></div>
+            <div>VIDAS: <span id="lives">❤️❤️❤️</span></div>
+        </div>
+        
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        
+        <div class="controls">
+            🎮 CONTROLES: ESPAÇO = PULAR (normal) / ATIRAR LASER (boss) | SETAS ← → = MOVER (boss)
+        </div>
+    </div>
+    
+    <div id="gameOver" class="game-over">
+        <h2>GAME OVER!</h2>
+        <p>Pontuação Final: <span id="finalScore">0</span></p>
+        <button onclick="restartGame()">JOGAR NOVAMENTE</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let gameRunning = true;
+        let score = 0;
+        let lives = 3;
+        let gameSpeed = 3;
+        let frameCount = 0;
+        let ufo = null;
+        let lasers = [];
+        let boss = null;
+        let rocks = [];
+        let keys = {};
+        let lastLifeBonus = 0;
+        let icePlanet = false;
+        let playerShip = false;
+        let isPlayingAnimation = false;
+        
+        const player = {
+            x: 100,
+            y: 300,
+            width: 40,
+            height: 40,
+            velocityY: 0,
+            velocityX: 0,
+            jumping: false,
+            canMove: false
+        };
+        
+        const gravity = 0.6;
+        const jumpPower = -12;
+        const moveSpeed = 5;
+        const ground = 300;
+        
+        let obstacles = [];
+        let coins = [];
+        
+        function createObstacle() {
+            const isNight = score >= 99;
+            let types, type;
+            
+            if (icePlanet) {
+                types = ['ice_spike', 'ice_rock', 'alien_plant'];
+                type = types[Math.floor(Math.random() * types.length)];
+            } else if (isNight) {
+                types = ['skeleton', 'zombie'];
+                type = types[Math.floor(Math.random() * types.length)];
+            } else {
+                types = ['pipe', 'goomba', 'block'];
+                type = types[Math.floor(Math.random() * types.length)];
+            }
+            
+            obstacles.push({
+                x: canvas.width,
+                y: type === 'pipe' ? 250 : 310,
+                width: (type === 'skeleton' || type === 'zombie' || type === 'ice_spike') ? 35 : (type === 'pipe' ? 50 : 30),
+                height: (type === 'skeleton' || type === 'zombie') ? 35 : (type === 'ice_spike' ? 40 : (type === 'pipe' ? 50 : 30)),
+                type: type
+            });
+        }
+        
+        function createCoin() {
+            coins.push({
+                x: canvas.width,
+                y: 200 + Math.random() * 80,
+                width: 20,
+                height: 20,
+                collected: false
+            });
+        }
+        
+        function drawPlayer() {
+            if (playerShip) {
+                // Nave espacial
+                ctx.fillStyle = '#c0c0c0';
+                ctx.beginPath();
+                ctx.ellipse(player.x + 20, player.y + 25, 25, 10, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#4a90e2';
+                ctx.beginPath();
+                ctx.ellipse(player.x + 20, player.y + 15, 15, 12, 0, Math.PI, 0, true);
+                ctx.fill();
+                
+                const shipLight = frameCount % 10 < 5 ? '#00ff00' : '#0000ff';
+                ctx.fillStyle = shipLight;
+                ctx.beginPath();
+                ctx.arc(player.x + 10, player.y + 28, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(player.x + 30, player.y + 28, 3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                if (frameCount % 6 < 3) {
+                    ctx.fillStyle = '#ff6600';
+                    ctx.fillRect(player.x + 8, player.y + 32, 4, 8);
+                    ctx.fillRect(player.x + 28, player.y + 32, 4, 8);
+                }
+                return;
+            }
+            
+            // Pessoa correndo
+            const animFrame = Math.floor(frameCount / 10) % 2;
+            
+            ctx.fillStyle = '#ffdbac';
+            ctx.beginPath();
+            ctx.arc(player.x + 20, player.y + 8, 8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#3d2817';
+            ctx.beginPath();
+            ctx.arc(player.x + 20, player.y + 5, 9, Math.PI, 0, true);
+            ctx.fill();
+            
+            ctx.fillStyle = '#000';
+            ctx.fillRect(player.x + 17, player.y + 7, 2, 2);
+            ctx.fillRect(player.x + 23, player.y + 7, 2, 2);
+            
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(player.x + 20, player.y + 10, 3, 0, Math.PI);
+            ctx.stroke();
+            
+            ctx.fillStyle = '#4a90e2';
+            ctx.fillRect(player.x + 14, player.y + 16, 12, 12);
+            
+            ctx.fillStyle = '#ffdbac';
+            if (animFrame === 0) {
+                ctx.fillRect(player.x + 8, player.y + 18, 6, 3);
+                ctx.fillRect(player.x + 26, player.y + 20, 6, 3);
+            } else {
+                ctx.fillRect(player.x + 8, player.y + 20, 6, 3);
+                ctx.fillRect(player.x + 26, player.y + 18, 6, 3);
+            }
+            
+            ctx.fillStyle = '#2c3e50';
+            ctx.fillRect(player.x + 14, player.y + 28, 5, 8);
+            ctx.fillRect(player.x + 21, player.y + 28, 5, 8);
+            
+            ctx.fillStyle = '#ffdbac';
+            if (animFrame === 0) {
+                ctx.fillRect(player.x + 14, player.y + 36, 5, 4);
+                ctx.fillRect(player.x + 21, player.y + 34, 5, 6);
+            } else {
+                ctx.fillRect(player.x + 14, player.y + 34, 5, 6);
+                ctx.fillRect(player.x + 21, player.y + 36, 5, 4);
+            }
+            
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillRect(player.x + 13, player.y + 39, 6, 2);
+            ctx.fillRect(player.x + 21, player.y + 39, 6, 2);
+        }
+        
+        function drawObstacle(obs) {
+            if (obs.type === 'ice_spike') {
+                ctx.fillStyle = '#b3e5fc';
+                ctx.beginPath();
+                ctx.moveTo(obs.x, obs.y + obs.height);
+                ctx.lineTo(obs.x + obs.width / 2, obs.y);
+                ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
+                ctx.closePath();
+                ctx.fill();
+            } else if (obs.type === 'ice_rock') {
+                ctx.fillStyle = '#81d4fa';
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+            } else if (obs.type === 'alien_plant') {
+                ctx.fillStyle = '#9c27b0';
+                ctx.fillRect(obs.x + 10, obs.y + 10, 10, 20);
+                ctx.fillStyle = '#e91e63';
+                ctx.beginPath();
+                ctx.arc(obs.x + 15, obs.y + 8, 8, 0, Math.PI * 2);
+                ctx.fill();
+            } else if (obs.type === 'skeleton') {
+                ctx.fillStyle = '#f0f0f0';
+                ctx.fillRect(obs.x + 10, obs.y, 15, 15);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(obs.x + 13, obs.y + 4, 3, 4);
+                ctx.fillRect(obs.x + 19, obs.y + 4, 3, 4);
+                ctx.fillStyle = '#f0f0f0';
+                ctx.fillRect(obs.x + 12, obs.y + 15, 11, 12);
+                ctx.fillRect(obs.x + 13, obs.y + 27, 4, 8);
+                ctx.fillRect(obs.x + 18, obs.y + 27, 4, 8);
+            } else if (obs.type === 'zombie') {
+                ctx.fillStyle = '#7cb342';
+                ctx.fillRect(obs.x + 10, obs.y, 15, 12);
+                ctx.fillStyle = '#ff0000';
+                ctx.fillRect(obs.x + 13, obs.y + 3, 3, 3);
+                ctx.fillRect(obs.x + 19, obs.y + 3, 3, 3);
+                ctx.fillStyle = '#6a994e';
+                ctx.fillRect(obs.x + 11, obs.y + 12, 13, 13);
+                ctx.fillStyle = '#7cb342';
+                ctx.fillRect(obs.x + 12, obs.y + 25, 5, 10);
+                ctx.fillRect(obs.x + 18, obs.y + 25, 5, 10);
+            } else if (obs.type === 'pipe') {
+                ctx.fillStyle = '#00cc00';
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                ctx.fillStyle = '#008800';
+                ctx.fillRect(obs.x, obs.y, obs.width, 15);
+            } else if (obs.type === 'goomba') {
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(obs.x + 5, obs.y + 5, 8, 8);
+                ctx.fillRect(obs.x + 17, obs.y + 5, 8, 8);
+            } else {
+                ctx.fillStyle = '#ff6600';
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+            }
+        }
+        
+        function drawCoin(coin) {
+            if (!coin.collected) {
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(coin.x + 10, coin.y + 10, 10, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        function drawBackground() {
+            const isNight = score >= 99;
+            
+            if (icePlanet) {
+                ctx.fillStyle = '#2d1b4e';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.fillStyle = '#ffffff';
+                for (let i = 0; i < 50; i++) {
+                    const starX = (i * 53 + frameCount * 0.3) % canvas.width;
+                    const starY = (i * 37) % 250 + 10;
+                    ctx.fillRect(starX, starY, 2, 2);
+                }
+                
+                ctx.fillStyle = '#4a90e2';
+                ctx.beginPath();
+                ctx.arc(100, 80, 40, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#b3e5fc';
+                ctx.fillRect(0, ground + player.height, canvas.width, canvas.height);
+                
+                for (let i = 0; i < canvas.width; i += 60) {
+                    ctx.fillStyle = '#81d4fa';
+                    ctx.beginPath();
+                    ctx.moveTo(i, ground + player.height);
+                    ctx.lineTo(i + 10, ground + player.height - 20);
+                    ctx.lineTo(i + 20, ground + player.height);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                return;
+            }
+            
+            if (isNight) {
+                ctx.fillStyle = '#1a1a2e';
+            } else {
+                ctx.fillStyle = '#5c94fc';
+            }
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (isNight) {
+                ctx.fillStyle = '#f0f0f0';
+                ctx.beginPath();
+                ctx.arc(700, 60, 30, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#ffffff';
+                for (let i = 0; i < 20; i++) {
+                    const starX = (i * 73) % canvas.width;
+                    const starY = (i * 37) % 150 + 20;
+                    ctx.fillRect(starX, starY, 2, 2);
+                }
+            }
+            
+            if (boss && !boss.defeated) {
+                ctx.fillStyle = '#3d2817';
+                ctx.fillRect(boss.x, boss.y + 20, 60, 80);
+                ctx.fillStyle = '#5c4033';
+                ctx.beginPath();
+                ctx.arc(boss.x + 30, boss.y + 20, 30, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#d4a574';
+                ctx.fillRect(boss.x + 15, boss.y + 15, 30, 25);
+                ctx.fillStyle = '#ff0000';
+                ctx.fillRect(boss.x + 20, boss.y + 20, 8, 6);
+                ctx.fillRect(boss.x + 35, boss.y + 20, 8, 6);
+                ctx.fillStyle = '#3d2817';
+                ctx.fillRect(boss.x - 10, boss.y + 30, 15, 50);
+                ctx.fillRect(boss.x + 55, boss.y + 30, 15, 50);
+                
+                ctx.fillStyle = '#ff0000';
+                ctx.fillRect(boss.x, boss.y - 15, 60, 8);
+                ctx.fillStyle = '#00ff00';
+                ctx.fillRect(boss.x, boss.y - 15, (boss.hits / 3) * 60, 8);
+            }
+            
+            if (ufo) {
+                ctx.fillStyle = '#c0c0c0';
+                ctx.beginPath();
+                ctx.ellipse(ufo.x, ufo.y + 15, 50, 15, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#87ceeb';
+                ctx.beginPath();
+                ctx.ellipse(ufo.x, ufo.y, 30, 20, 0, Math.PI, 0, true);
+                ctx.fill();
+            }
+            
+            if (!boss && !icePlanet) {
+                for (let i = 0; i < 5; i++) {
+                    let treeX = i * 200 + 50 - (frameCount * 0.5) % 1000;
+                    ctx.fillStyle = isNight ? '#4a3520' : '#8B4513';
+                    ctx.fillRect(treeX, 240, 20, 100);
+                    ctx.fillStyle = isNight ? '#1a4d1a' : '#228B22';
+                    ctx.beginPath();
+                    ctx.arc(treeX + 10, 220, 35, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            
+            if (!isNight && !boss && !icePlanet) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                ctx.beginPath();
+                ctx.arc(150, 50, 25, 0, Math.PI * 2);
+                ctx.arc(180, 50, 30, 0, Math.PI * 2);
+                ctx.arc(210, 50, 25, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            ctx.fillStyle = isNight ? '#1a4d1a' : '#00cc00';
+            ctx.fillRect(0, ground + player.height, canvas.width, canvas.height);
+        }
+        
+        function jump() {
+            if (boss && !boss.defeated) {
+                // Durante o boss, pode PULAR E atirar laser
+                if (!player.jumping) {
+                    player.velocityY = jumpPower;
+                    player.jumping = true;
+                }
+                // E atira laser também
+                rocks.push({
+                    x: player.x + 35,
+                    y: player.y + 20,
+                    width: 15,
+                    height: 4,
+                    velocityX: 12,
+                    velocityY: 0,
+                    isLaser: true
+                });
+            } else if (!player.jumping && !boss) {
+                player.velocityY = jumpPower;
+                player.jumping = true;
+            }
+        }
+        
+        function checkCollision(obj1, obj2) {
+            return obj1.x < obj2.x + obj2.width &&
+                   obj1.x + obj1.width > obj2.x &&
+                   obj1.y < obj2.y + obj2.height &&
+                   obj1.y + obj1.height > obj2.y;
+        }
+        
+        function playBossDefeatAnimation() {
+            isPlayingAnimation = true;
+            gameRunning = false;
+            let step = 0;
+            
+            const interval = setInterval(() => {
+                step++;
+                ctx.fillStyle = '#5c94fc';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#00cc00';
+                ctx.fillRect(0, ground + player.height, canvas.width, canvas.height);
+                
+                if (step <= 60) {
+                    const size = step * 2;
+                    ctx.fillStyle = '#ff0000';
+                    ctx.beginPath();
+                    ctx.arc(boss.x + 30, boss.y + 50, size, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 32px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('💥 BOOM! 💥', 400, 100);
+                    
+                    drawPlayer();
+                } else if (step <= 120) {
+                    ctx.fillStyle = '#c0c0c0';
+                    ctx.beginPath();
+                    ctx.ellipse(650, 290, 50, 15, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    drawPlayer();
+                    
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 24px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Pegando a nave! 🏃‍♂️', 400, 100);
+                    
+                    player.x += 3;
+                } else if (step <= 180) {
+                    const shipY = 290 - (step - 120) * 3;
+                    ctx.fillStyle = '#c0c0c0';
+                    ctx.beginPath();
+                    ctx.ellipse(400, shipY + 15, 50, 15, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#ff6600';
+                    ctx.fillRect(380, shipY + 25, 10, 20);
+                    ctx.fillRect(410, shipY + 25, 10, 20);
+                    
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 24px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('🚀 DECOLANDO! 🚀', 400, 100);
+                } else if (step <= 240) {
+                    ctx.fillStyle = '#000000';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    for (let i = 0; i < 50; i++) {
+                        const starX = (i * 53 + step * 15) % canvas.width;
+                        const starY = (i * 37) % canvas.height;
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(starX, starY, 3, 20);
+                    }
+                    
+                    ctx.fillStyle = '#c0c0c0';
+                    ctx.beginPath();
+                    ctx.ellipse(400, 200, 50, 15, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#00ffff';
+                    ctx.font = 'bold 28px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('⭐ VELOCIDADE DA LUZ! ⭐', 400, 100);
+                } else if (step <= 300) {
+                    ctx.fillStyle = '#2d1b4e';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    for (let i = 0; i < 50; i++) {
+                        const starX = (i * 53) % canvas.width;
+                        const starY = (i * 37) % 250 + 10;
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(starX, starY, 2, 2);
+                    }
+                    
+                    ctx.fillStyle = '#4a90e2';
+                    ctx.beginPath();
+                    ctx.arc(100, 80, 40, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    const iceSize = (step - 240) * 10;
+                    ctx.fillStyle = '#b3e5fc';
+                    ctx.beginPath();
+                    ctx.arc(400, 400, iceSize, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#00ffff';
+                    ctx.font = 'bold 28px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('❄️ PLANETA DE GELO! ❄️', 400, 350);
+                } else {
+                    clearInterval(interval);
+                    icePlanet = true;
+                    playerShip = true;
+                    boss = null;
+                    rocks = [];
+                    player.x = 100;
+                    player.canMove = false;
+                    gameSpeed = 4;
+                    frameCount = 0;
+                    obstacles = [];
+                    isPlayingAnimation = false;
+                    gameRunning = true;
+                }
+            }, 50);
+        }
+        
+        function update() {
+            if (!gameRunning || isPlayingAnimation) return;
+            
+            frameCount++;
+            
+            if (score >= 1625 && !boss && !icePlanet) {
+                boss = {
+                    x: 650,
+                    y: 260,
+                    width: 60,
+                    height: 80,
+                    hits: 3,
+                    defeated: false
+                };
+                player.canMove = true;
+                gameSpeed = 0;
+                obstacles = [];
+                coins = [];
+            }
+            
+            if (boss && player.canMove) {
+                player.velocityX = 0;
+                if (keys['ArrowLeft'] || keys['a']) player.velocityX = -moveSpeed;
+                if (keys['ArrowRight'] || keys['d']) player.velocityX = moveSpeed;
+                player.x += player.velocityX;
+                if (player.x < 0) player.x = 0;
+                if (player.x > canvas.width - player.width) player.x = canvas.width - player.width;
+            }
+            
+            if (boss && !boss.defeated && frameCount % 120 === 0) {
+                rocks.push({
+                    x: boss.x + 25,
+                    y: boss.y + 40,
+                    width: 20,
+                    height: 20,
+                    velocityY: 0,
+                    velocityX: 0,
+                    gravity: 0.5,
+                    isLaser: false
+                });
+            }
+            
+            for (let i = rocks.length - 1; i >= 0; i--) {
+                const rock = rocks[i];
+                
+                if (rock.isLaser) {
+                    // Laser se move horizontalmente
+                    rock.x += rock.velocityX;
+                } else {
+                    // Pedra cai (do chimpanzé)
+                    rock.velocityY += rock.gravity;
+                    rock.y += rock.velocityY;
+                    
+                    if (rock.y >= ground + player.height - rock.height) {
+                        rock.y = ground + player.height - rock.height;
+                        rock.velocityY = 0;
+                    }
+                }
+                
+                if (boss && !boss.defeated && rock.isLaser && checkCollision(rock, boss)) {
+                    // Só conta se for LASER do jogador, não pedra do boss
+                    boss.hits--;
+                    rocks.splice(i, 1);
+                    
+                    // Efeito visual de acerto
+                    boss.x += (Math.random() - 0.5) * 8;
+                    
+                    console.log("Boss atingido por LASER! Vidas restantes: " + boss.hits);
+                    
+                    if (boss.hits <= 0) {
+                        console.log("Boss derrotado! Iniciando animação...");
+                        boss.defeated = true;
+                        score += 500;
+                        updateScore();
+                        playBossDefeatAnimation();
+                    }
+                    continue;
+                }
+                
+                // Colisão da pedra do boss com o jogador
+                if (!rock.isLaser && checkCollision(rock, player)) {
+                    lives--;
+                    updateLives();
+                    rocks.splice(i, 1);
+                    if (lives <= 0) gameOver();
+                    continue;
+                }
+                
+                // Remover se sair da tela
+                if (rock.y > canvas.height || rock.x > canvas.width || rock.x < -50) {
+                    rocks.splice(i, 1);
+                }
+            }
+            
+            if (score >= 876 && score < 1134 && !ufo && !boss) {
+                ufo = { x: canvas.width / 2, y: 80, velocityX: 2 };
+            }
+            
+            if (score >= 1134 && ufo) {
+                ufo = null;
+                lasers = [];
+            }
+            
+            if (ufo) {
+                ufo.x += ufo.velocityX;
+                if (ufo.x > canvas.width - 100 || ufo.x < 100) {
+                    ufo.velocityX *= -1;
+                }
+                if (frameCount % 120 === 0) {
+                    lasers.push({ x: ufo.x, y: ufo.y + 30, width: 4, height: 20, speed: 6 });
+                }
+            }
+            
+            for (let i = lasers.length - 1; i >= 0; i--) {
+                const laser = lasers[i];
+                laser.y += laser.speed;
+                
+                if (checkCollision(player, laser)) {
+                    lives--;
+                    updateLives();
+                    lasers.splice(i, 1);
+                    if (lives <= 0) gameOver();
+                }
+                
+                if (laser.y > canvas.height) lasers.splice(i, 1);
+            }
+            
+            player.velocityY += gravity;
+            player.y += player.velocityY;
+            
+            if (player.y >= ground) {
+                player.y = ground;
+                player.velocityY = 0;
+                player.jumping = false;
+            }
+            
+            if (frameCount % 120 === 0 && !boss) createObstacle();
+            if (frameCount % 80 === 0 && !boss && !icePlanet) createCoin();
+            
+            if (!boss) {
+                for (let i = obstacles.length - 1; i >= 0; i--) {
+                    const obs = obstacles[i];
+                    obs.x -= gameSpeed;
+                    
+                    const stompedOnHead = player.velocityY > 0 && 
+                                          player.x < obs.x + obs.width &&
+                                          player.x + player.width > obs.x &&
+                                          player.y + player.height >= obs.y &&
+                                          player.y + player.height <= obs.y + 10 &&
+                                          (obs.type === 'goomba' || obs.type === 'skeleton' || obs.type === 'zombie');
+                    
+                    if (stompedOnHead) {
+                        obstacles.splice(i, 1);
+                        score += 30;
+                        updateScore();
+                        player.velocityY = jumpPower * 0.6;
+                        continue;
+                    }
+                    
+                    if (checkCollision(player, obs)) {
+                        lives--;
+                        updateLives();
+                        obstacles.splice(i, 1);
+                        if (lives <= 0) gameOver();
+                    }
+                    
+                    if (obs.x + obs.width < 0) {
+                        obstacles.splice(i, 1);
+                        score += 10;
+                        updateScore();
+                    }
+                }
+            }
+            
+            for (let i = coins.length - 1; i >= 0; i--) {
+                const coin = coins[i];
+                coin.x -= gameSpeed;
+                
+                if (!coin.collected && checkCollision(player, coin)) {
+                    coin.collected = true;
+                    score += 50;
+                    updateScore();
+                }
+                
+                if (coin.x + coin.width < 0) coins.splice(i, 1);
+            }
+            
+            if (frameCount % 500 === 0 && gameSpeed < 8) gameSpeed += 0.5;
+        }
+        
+        function draw() {
+            if (isPlayingAnimation) return;
+            
+            drawBackground();
+            
+            if (!boss) {
+                obstacles.forEach(obs => drawObstacle(obs));
+                coins.forEach(coin => drawCoin(coin));
+            }
+            
+            rocks.forEach(rock => {
+                if (rock.isLaser) {
+                    // Desenhar laser azul
+                    ctx.fillStyle = '#00ffff';
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = '#00ffff';
+                    ctx.fillRect(rock.x, rock.y, rock.width, rock.height);
+                    ctx.shadowBlur = 0;
+                    
+                    // Rastro do laser
+                    ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
+                    ctx.fillRect(rock.x - 10, rock.y, 10, rock.height);
+                } else {
+                    // Pedra (do chimpanzé)
+                    ctx.fillStyle = '#808080';
+                    ctx.beginPath();
+                    ctx.arc(rock.x + 10, rock.y + 10, 10, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#606060';
+                    ctx.beginPath();
+                    ctx.arc(rock.x + 12, rock.y + 8, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+            
+            lasers.forEach(laser => {
+                ctx.fillStyle = '#00ff00';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#00ff00';
+                ctx.fillRect(laser.x - 2, laser.y, laser.width, laser.height);
+                ctx.shadowBlur = 0;
+            });
+            
+            drawPlayer();
+            
+            if (boss && boss.hits > 0 && !boss.defeated) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.fillRect(180, 130, 440, 150);
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 26px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('🦍 BOSS: CHIMPANZÉ! 🦍', 400, 170);
+                ctx.font = '18px Arial';
+                ctx.fillText('SETAS ← → para MOVER', 400, 205);
+                ctx.fillStyle = '#00ffff';
+                ctx.font = 'bold 18px Arial';
+                ctx.fillText('ESPAÇO = PULAR + ATIRAR LASER! 🔫', 400, 235);
+                ctx.fillStyle = '#ffff00';
+                ctx.font = '16px Arial';
+                ctx.fillText('⚡ Vida do Boss: ' + boss.hits + '/3 ⚡', 400, 265);
+            }
+            
+            if (icePlanet && frameCount < 200) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(150, 120, 500, 100);
+                ctx.fillStyle = '#00ffff';
+                ctx.font = 'bold 26px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('❄️ PLANETA DE GELO! ❄️', 400, 155);
+                ctx.font = '16px Arial';
+                ctx.fillText('Novo mundo! Novos obstáculos!', 400, 185);
+                ctx.fillText('Blordon agora é uma nave! 🚀', 400, 210);
+            }
+        }
+        
+        function gameLoop() {
+            if (!isPlayingAnimation) {
+                update();
+                draw();
+            }
+            if (gameRunning || isPlayingAnimation) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+        
+        function updateScore() {
+            document.getElementById('score').textContent = score;
+            if (Math.floor(score / 500) > lastLifeBonus) {
+                lastLifeBonus = Math.floor(score / 500);
+                lives++;
+                updateLives();
+                showLifeBonus();
+            }
+        }
+        
+        function showLifeBonus() {
+            const msg = document.createElement('div');
+            msg.style.position = 'fixed';
+            msg.style.top = '50%';
+            msg.style.left = '50%';
+            msg.style.transform = 'translate(-50%, -50%)';
+            msg.style.background = 'rgba(255, 0, 0, 0.9)';
+            msg.style.color = '#fff';
+            msg.style.padding = '20px 40px';
+            msg.style.borderRadius = '15px';
+            msg.style.fontSize = '24px';
+            msg.style.fontWeight = 'bold';
+            msg.style.zIndex = '1000';
+            msg.textContent = '❤️ +1 VIDA! ❤️';
+            document.body.appendChild(msg);
+            setTimeout(() => msg.remove(), 2000);
+        }
+        
+        function updateLives() {
+            let hearts = '';
+            for (let i = 0; i < lives; i++) hearts += '❤️';
+            document.getElementById('lives').textContent = hearts || '💀';
+        }
+        
+        function gameOver() {
+            gameRunning = false;
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('gameOver').style.display = 'block';
+        }
+        
+        function restartGame() {
+            gameRunning = true;
+            score = 0;
+            lives = 3;
+            gameSpeed = 3;
+            frameCount = 0;
+            obstacles = [];
+            coins = [];
+            ufo = null;
+            lasers = [];
+            boss = null;
+            rocks = [];
+            keys = {};
+            lastLifeBonus = 0;
+            icePlanet = false;
+            playerShip = false;
+            isPlayingAnimation = false;
+            player.x = 100;
+            player.y = ground;
+            player.velocityY = 0;
+            player.velocityX = 0;
+            player.jumping = false;
+            player.canMove = false;
+            
+            updateScore();
+            updateLives();
+            document.getElementById('gameOver').style.display = 'none';
+            gameLoop();
+        }
+        
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                e.preventDefault();
+                jump();
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+        
+        gameLoop();
+    </script>
+</body>
+</html>
